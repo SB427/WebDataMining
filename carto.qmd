@@ -1,0 +1,145 @@
+---
+title: "Cartographie"
+author: "SB"
+format:
+  html: 
+    theme: cosmo
+    toc: true
+execute: 
+  warning: false
+---
+
+```{r setup}
+
+library(tidyverse)
+library(sf)
+library(ggrepel)
+
+```
+
+
+
+## Premières cartes
+
+On travaille à partir de la base de données du commerce 2020 (source : [APUR](https://opendata.apur.org/)) et de la division de Paris en quartiers administratifs (source : [Ville de Paris](https://opendata.paris.fr/explore/dataset/quartier_paris/information/?disjunctive.c_ar)).
+
+On commence par quelques cartes simples :
+
+```{r}
+commerce<-sf::st_read("cartes/BDCOM_2020.shp")
+
+ggplot(commerce)+
+  geom_sf()
+
+ggplot()+
+  geom_sf(data=commerce, aes(color=LIBELLE_RE))
+```
+
+```{r}
+paris<-sf::st_read("cartes/quartier_paris.shp")
+
+ggplot(paris)+
+  geom_sf()
+
+ggplot()+
+  geom_sf(data=paris, aes(fill=l_qu), show.legend = F)
+
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf_text(data=paris,aes(label = l_qu), size=1.5)+
+  theme_void()
+```
+
+
+On peut également filtrer les données pour plus de précision :
+
+```{r}
+
+ggplot()+
+  geom_sf(data = paris)+
+  geom_sf(data=commerce%>%filter(LIBELLE_RE=="Local vacant"), aes(color=SURFACE), size=0.5)
+
+ggplot()+
+  geom_sf(data=paris%>%filter(c_ar==6), aes(fill=l_qu))+
+  geom_sf(data=commerce%>%filter(LIBELLE_RE=="Local vacant"&ARRONDISSE==6&QUARTIER==24), aes(color=SURFACE), alpha=0.5)+
+  scale_fill_brewer(palette = "Pastel1")+
+  scale_color_brewer(palette="Set1")
+
+RColorBrewer::display.brewer.all()
+
+```
+
+## Indicateurs et cartes
+
+Jusqu'à présent, on a représenté les données à notre disposition, en les filtrant. On va maintenant essayer de créer de nouvelles informations, (1) en fusionnant les bases et (2) en créant de nouveaux indicateurs. On s'intéressera ensuite aux représentations graphiques.
+
+
+### Fusionner les bases
+
+On dispose de l'information concernant le quartier administratif dans les deux jeux de données (cf. [Wikipédia](https://fr.wikipedia.org/wiki/Liste_des_quartiers_administratifs_de_Paris)). Ce sera notre clé de fusion. Cependant, le format de cette information n'est pas la même entre les deux bases, on doit donc les mettre au même format entre les deux bases. Les variables d'intérêt sont "QUARTIER" pour la base commerce et "c_qu" pour la base de Paris.  
+
+```{r}
+
+paris<-paris%>%
+  mutate(QUARTIER=as.integer(c_qu))
+
+df<-inner_join(as.data.frame(commerce)%>%select(-geometry), as.data.frame(paris)%>%select(-geometry))
+
+nb_com<-df%>%group_by(l_qu)%>%
+  reframe(nb_commerce=n(),
+            density_com=nb_commerce/(surface/10000))%>%unique()
+
+nb_type<-df%>%group_by(l_qu, LIBELLE_RE)%>%
+  reframe(nb_type=n(),
+          density_type=nb_type/(surface/10000))%>%unique()
+
+nb_surface<-df%>%group_by(l_qu, SURFACE)%>%
+  reframe(nb_surface=n(),
+          density_surface=nb_surface/(surface/10000))%>%unique
+
+nb_surface_type<-df%>%group_by(l_qu, LIBELLE_RE, SURFACE)%>%
+  reframe(nb_surf_type=n(),
+          density_surf_type=nb_surf_type/(surface/10000))%>%
+  unique()
+
+Com<-merge(paris,nb_com, by ="l_qu")
+Type<-merge(paris, nb_type, by="l_qu" )
+```
+
+### Cartographies
+
+```{r}
+
+ggplot(Com) + 
+  geom_sf(aes(fill=density_com))+
+  scale_fill_gradient(low = "white", high = "firebrick")+
+  labs(title = "Densité des commerces au km2",
+       x=NULL,
+       y=NULL,
+       caption="APUR BDCom_2020", 
+       fill="Densité")+
+  theme_void()
+  
+
+ggplot(Type%>%filter(LIBELLE_RE=="Alimentaire")) + 
+  geom_sf(aes(fill=nb_type))+
+  scale_fill_gradient(low ="lightblue", high = "darkblue")+
+  labs(title = "Nombre des commerces alimentaire",
+       x=NULL,
+       y=NULL,
+       caption="APUR BDCom_2020",
+       fill="Nombre")+
+  theme_void()
+  
+```
+
+## Conclusion
+
+On peut bien entendu aller plus loin et plus en détails dans l'étude, en croisant avec d'autres sources de données, en travaillant sur les libellés précis des commerces (plus de 220), et en ajoutant des fonds de cartes reprenant les rues, stations de métro, etc.
+
+```{r}
+commerce%>%group_by(LIBELLE_AC)%>%count(sort=T)
+
+
+```
+
